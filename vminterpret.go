@@ -29,7 +29,7 @@ func (vc *vmCompiler) emit(in instruction) {
 }
 
 func (vc *vmCompiler) emitWithArg(in instruction, arg int32) {
-	vc.emit(instruction(arg << 0xFF) | in)
+	vc.emit((instruction(arg) << 8) | in)
 }
 
 func (vc *vmCompiler) compileList(a []ast, ctx map[string]int32) {
@@ -74,12 +74,12 @@ func (vc *vmCompiler) compileList(a []ast, ctx map[string]int32) {
 		vc.compileValue(args[0], ctx)
 		vc.emitWithArg(instructionJump, 0)
 		// Need to fix since we don't yet know where to jump to reach the else
-		addressToFix := len(vc.bc)-1
+		addressToFix := len(vc.bc)
 
 		vc.compileValue(args[1], ctx)
-		addressAfter := len(vc.bc)-1
+		addressAfter := len(vc.bc)
 
-		vc.bc[addressToFix] |= instruction(addressAfter << 0xFF)
+		vc.bc[addressToFix] |= instruction(addressAfter) << 8
 
 		vc.compileValue(args[2], ctx)
 		return
@@ -88,7 +88,8 @@ func (vc *vmCompiler) compileList(a []ast, ctx map[string]int32) {
 		params := args[1]
 		body := args[2:]
 
-		ctx[*fn.identifier] = int32(len(vc.bc)-1)
+		ctx[*fn.identifier] = int32(len(vc.bc))
+		fmt.Println("assigning fn", *fn.identifier, ctx[*fn.identifier])
 
 		childCtx := map[string]int32{}
 		for key, val := range ctx {
@@ -109,6 +110,7 @@ func (vc *vmCompiler) compileList(a []ast, ctx map[string]int32) {
 		vc.compileValue(arg, ctx)
 	}
 
+	fmt.Println("calling", *fn.identifier, ctx[*fn.identifier])
 	vc.emitWithArg(instructionCall, ctx[*fn.identifier])
 
 	for range args {
@@ -131,17 +133,70 @@ func (vc *vmCompiler) compileBlock(a []ast, ctx map[string]int32) {
 	for i, value := range a {
 		vc.compileValue(value, ctx)
 
-		if i < len(a) - 1 {
+		if i < len(a)-1 {
 			vc.bc = append(vc.bc, instructionPop)
 		}
 	}
 }
 
-func vmCompile(a ast) ([]instruction, int32) {
+func vmCompile(a ast) ([]instruction, int32, map[string]int32) {
 	vc := vmCompiler{}
 	ctx := map[string]int32{}
 	vc.compileBlock(*a.list, ctx)
-	return vc.bc, ctx["main"]
+	return vc.bc, ctx["main"], ctx
+}
+
+func vmDisassemble(bc []instruction, ctx map[string]int32) string {
+	var s []string
+
+	for i := 0; i < len(bc); i++ {
+		in := bc[i] & 0xFF
+		arg := bc[i] >> 8
+		switch in {
+		case instructionAdd:
+			s = append(s, "add")
+		case instructionSub:
+			s = append(s, "sub")
+		case instructionGte:
+			s = append(s, "gte")
+		case instructionGt:
+			s = append(s, "gt")
+		case instructionLte:
+			s = append(s, "lte")
+		case instructionLt:
+			s = append(s, "lt")
+		case instructionCall:
+			s = append(s, fmt.Sprintf("call %d", arg))
+		case instructionRet:
+			s = append(s, fmt.Sprintf("ret"))
+		case instructionJump:
+			s = append(s, fmt.Sprintf("jump %d", arg))
+		case instructionPush:
+			fmt.Println("push", in, bc[i], arg)
+			s = append(s, fmt.Sprintf("push %d", arg))
+		case instructionPushFromFrameOffset:
+			s = append(s, fmt.Sprintf("push-from-frame-offset %d", arg))
+		case instructionPop:
+			s = append(s, "pop")
+		case instructionHalt:
+			s = append(s, "halt")
+		default:
+			s = append(s, fmt.Sprintf("Unknown instruction: %d, arg: %d", in, arg))
+		}
+	}
+
+	lines := ""
+	for i, line := range s {
+		label := ""
+		for key, val := range ctx {
+			if val == int32(i) {
+				label = "# " + key
+			}
+		}
+		lines += fmt.Sprintf("%d\t\t%s\t\t%s\r\n", i, label, line)
+	}
+
+	return lines
 }
 
 func vmRun(bc []instruction, entrypoint int32) int32 {
@@ -150,18 +205,18 @@ func vmRun(bc []instruction, entrypoint int32) int32 {
 	sp := 0
 	fp := int32(0)
 
-	for in := bc[ip] & 0xFF; in != instructionHalt; {
+	for in := bc[ip] & 0xFF; in != instructionHalt; in = bc[ip] {
 		switch in {
 		case instructionAdd:
 			arg1 := stack[sp]
 			sp--
 			arg2 := stack[sp]
-			stack[sp] = arg1+arg2
+			stack[sp] = arg1 + arg2
 		case instructionSub:
 			arg1 := stack[sp]
 			sp--
 			arg2 := stack[sp]
-			stack[sp] = arg1+arg2
+			stack[sp] = arg1 + arg2
 		case instructionGte:
 			arg1 := stack[sp]
 			sp--
@@ -199,7 +254,7 @@ func vmRun(bc []instruction, entrypoint int32) int32 {
 			sp++
 			stack[sp] = ip
 			sp++
-			ip = int32(bc[ip] >> 0xFF)
+			ip = int32(bc[ip] >> 8)
 			continue
 		case instructionRet:
 			ip = stack[sp]
@@ -213,20 +268,21 @@ func vmRun(bc []instruction, entrypoint int32) int32 {
 
 			// zero check may be backwards but makes `if` easier
 			if arg1 == 0 {
-				ip = int32(bc[ip] >> 0xFF)
+				ip = int32(bc[ip] >> 8)
 				continue
 			}
 		case instructionPush:
-			stack[sp] = int32(bc[ip] >> 0xFF)
+			stack[sp] = int32(bc[ip] >> 8)
 			sp++
 		case instructionPushFromFrameOffset:
-			stack[sp] = stack[fp - int32(bc[ip] >> 0xFF) - 1]
+			stack[sp] = stack[fp-int32(bc[ip]>>8)-1]
 		case instructionPop:
 			sp--
+		default:
+			panic(fmt.Sprintf("Unknown instruction: %+v", in))
 		}
 
 		ip++
-		fmt.Println(ip)
 	}
 
 	return stack[sp]
