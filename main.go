@@ -16,7 +16,7 @@ func main() {
 	mode := "ast"
 	for i, arg := range os.Args[1:] {
 		if arg == "--mode" || arg == "-mode" {
-			mode = os.Args[i+1]
+			mode = os.Args[i+2]
 		}
 	}
 
@@ -26,7 +26,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	ast, ok := parse(string(f))
+	a, ok := parse(string(f))
 	if !ok {
 		fmt.Println("Error parsing entry program")
 		os.Exit(1)
@@ -37,10 +37,18 @@ func main() {
 	switch mode {
 	case "ast":
 		t1 = time.Now()
-		v := astInterpret(*ast)
+		v := astInterpret(*a)
 		res = *v.integer
+	case "vm":
+		bc, entrypoint := vmCompile(*a)
+		t1 = time.Now()
+		res = vmRun(bc, entrypoint)
+	case "compile":
+		// code = compile(*a)
+		t1 = time.Now()
+		// res = run(code)
 	default:
-		panic("Unknown mode")
+		panic("Unknown mode: " + mode)
 	}
 
 	t2 := time.Now()

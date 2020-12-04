@@ -182,12 +182,12 @@ func astToValue(a ast) value {
 }
 
 func astInterpret(a ast) value {
-	astValue := astToValue(a)
+	program := astToValue(a)
 
 	// Add on a call to main
 	mainIdentifier := "main"
-	program := append(
-		*astValue.list,
+	beginList := append(
+		*program.list,
 		value{
 			kind: valueList,
 			list: &[]value{
@@ -198,5 +198,5 @@ func astInterpret(a ast) value {
 			},
 		})
 
-	return valueInterpretBlock(program, map[string]value{})
+	return valueInterpretBlock(beginList, map[string]value{})
 }
