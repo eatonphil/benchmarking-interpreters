@@ -40,8 +40,7 @@ func main() {
 		v := astInterpret(*a)
 		res = *v.integer
 	case "vm":
-		bc, entrypoint, ctx := vmCompile(*a)
-		fmt.Println(vmDisassemble(bc, ctx))
+		bc, entrypoint, _ := vmCompile(*a)
 		t1 = time.Now()
 		res = vmRun(bc, entrypoint)
 	case "compile":
