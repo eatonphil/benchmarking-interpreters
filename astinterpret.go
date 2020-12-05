@@ -150,6 +150,10 @@ func valueInterpretList(list []value, ctx map[string]value) value {
 			},
 		}
 		return ctx[*name.identifier]
+	case "print":
+		arg := valueInterpret(args[0], ctx)
+		fmt.Println(arg.toString())
+		return arg
 	}
 
 	fnc := valueInterpret(fn, ctx)
